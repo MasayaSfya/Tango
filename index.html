@@ -10,7 +10,6 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
 
-        // 発行された専用Firebase設定
         const firebaseConfig = {
             apiKey: "AIzaSyDHpOYY5Ij6PKQuwhuCFKs103y1iX40-xw",
             authDomain: "my-tango-fd876.firebaseapp.com",
@@ -81,6 +80,35 @@
             cursor: pointer;
         }
         .filter-btn.active { background: #007aff; color: #fff; }
+
+        /* 指定番号ジャンプ用バー */
+        .jump-box {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            background: #fff;
+            padding: 6px 10px;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+        }
+        .jump-input {
+            width: 70px;
+            padding: 6px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 14px;
+            text-align: center;
+        }
+        .jump-btn {
+            padding: 6px 12px;
+            background: #34c759;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-weight: bold;
+            font-size: 13px;
+            cursor: pointer;
+        }
 
         .controls-top {
             display: flex;
@@ -224,19 +252,29 @@
 <body>
 
     <div class="top-container">
-        <!-- クラウド同期ID設定バー -->
+        <!-- クラウド同期IDバー -->
         <div class="sync-box">
             <span>☁️ クラウド同期ID:</span>
-            <input type="text" id="user-sync-id" class="sync-input" placeholder="例: mytango123" onchange="changeSyncId(this.value)">
+            <input type="text" id="user-sync-id" class="sync-input" placeholder="例: tango" onchange="changeSyncId(this.value)">
         </div>
 
+        <!-- 1段目：モード切替 -->
         <div class="filter-box">
             <button class="filter-btn active" id="filter-all" onclick="setFilter('all')">すべての単語</button>
             <button class="filter-btn" id="filter-check" onclick="setFilter('check')">要復習のみ (0)</button>
         </div>
 
+        <!-- 指定番号ジャンプ機能 -->
+        <div class="jump-box">
+            <span style="font-size:13px; color:#555; font-weight:bold;">🚀 指定ナンバーへ跳ぶ:</span>
+            <input type="number" id="jump-num-input" class="jump-input" placeholder="No.">
+            <button class="jump-btn" onclick="jumpToNumber()">移動</button>
+        </div>
+
+        <!-- 続きから開くボタン -->
         <button class="resume-btn" id="btn-resume" onclick="resumeLastPosition()">📍 前回の続きから開く (No.<span id="resume-num"></span>)</button>
 
+        <!-- 2段目：ナビゲーションボタン -->
         <div class="controls-top">
             <button class="nav-btn" onclick="prevCard()">◀ 前へ</button>
             <button class="nav-btn" onclick="nextCard()">次へ ▶</button>
@@ -372,6 +410,21 @@
             checkResumeButton();
         }
 
+        // 指定番号ジャンプ処理
+        function jumpToNumber() {
+            const inputVal = document.getElementById('jump-num-input').value.trim();
+            if (!inputVal) return;
+
+            const targetIndex = displayList.findIndex(idx => String(rawData[idx].num) === String(inputVal));
+            if (targetIndex !== -1) {
+                currentIndex = targetIndex;
+                renderCard();
+                document.getElementById('jump-num-input').value = '';
+            } else {
+                alert(`No.${inputVal} の単語が見つかりませんでした。`);
+            }
+        }
+
         function checkResumeButton() {
             const resumeBtn = document.getElementById('btn-resume');
             if (lastReadNum && currentMode === 'all') {
@@ -423,24 +476,41 @@
             saveToCloud();
         }
 
+        // 和訳表示順の固定化処理（不具合解消）
         async function renderWordTagList(num) {
             const listDiv = document.getElementById('checked-words-list');
-            const checkedWords = wordCheckMap[num] ? Object.keys(wordCheckMap[num]).filter(w => wordCheckMap[num][w]) : [];
+            const item = rawData[displayList[currentIndex]];
             
-            if (checkedWords.length === 0) {
+            // 例文内の単語の並び順（左から右）を取得
+            const exWords = item.ex_eng.split(' ').map(w => w.replace(/[^a-zA-Z]/g, "").toLowerCase()).filter(w => w);
+            
+            // チェックされている単語を例文の登場順に並べ替え
+            const checkedWords = wordCheckMap[num] ? Object.keys(wordCheckMap[num]).filter(w => wordCheckMap[num][w]) : [];
+            const sortedCheckedWords = exWords.filter((w, index, self) => checkedWords.includes(w) && self.indexOf(w) === index);
+
+            if (sortedCheckedWords.length === 0) {
                 listDiv.innerHTML = '';
                 return;
             }
 
             listDiv.innerHTML = '💡 <b>タップした単語の和訳:</b>';
-            for (let word of checkedWords) {
+            
+            // 枠をはじめから固定順で生成
+            const cardElements = {};
+            for (let word of sortedCheckedWords) {
                 const cardEl = document.createElement('div');
                 cardEl.className = 'word-translation-card';
                 cardEl.innerHTML = `<span class="word-tag">${word}</span><span class="trans-text">読み込み中...</span>`;
                 listDiv.appendChild(cardEl);
+                cardElements[word] = cardEl;
+            }
 
+            // 取得できた順に該当の固定枠へ正しく挿入
+            for (let word of sortedCheckedWords) {
                 fetchTranslation(word).then(trans => {
-                    cardEl.querySelector('.trans-text').innerText = trans;
+                    if (cardElements[word]) {
+                        cardElements[word].querySelector('.trans-text').innerText = trans;
+                    }
                 });
             }
         }
